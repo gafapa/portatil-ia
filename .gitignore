@@ -1,0 +1,34 @@
+# The project contains scripts only. Everything below is created by the
+# installer or the launchers inside an installed portable and must never be
+# committed: downloaded programs, assistant state, and credentials.
+
+# Downloaded programs
+**/bin/
+**/prog/
+**/codex-path/
+**/codex-resources/
+**/codex-package.json
+
+# Assistant state, sessions, and workspaces
+**/data/
+**/config/
+**/cache/
+**/state/
+**/sesiones/
+**/workspaces/
+.portable-tmp/
+
+# Credentials and installation records
+*.enc
+*.enc.*
+*.credentials.json
+**/auth.json
+portatil.passcheck
+versiones.json
+versiones.json.tmp
+.portable-session.lock
+.portable-save-*
+
+# Python
+__pycache__/
+*.pyc

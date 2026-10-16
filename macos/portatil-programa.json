@@ -1,0 +1,78 @@
+{
+  "_comment": "Portable installation for macOS: scripts copied by instalar.py and official download sources. See docs/ARCHITECTURE.md.",
+  "system": "macos",
+  "rootFiles": [
+    "instalar.sh",
+    "actualizar.sh",
+    "portatil-programa.json",
+    "README.md",
+    "lib/python.sh",
+    "lib/portatil.py",
+    "lib/lanzador.py",
+    "lib/instalar.py"
+  ],
+  "tools": {
+    "antigravity": {
+      "launchers": [
+        "antigravity.sh"
+      ],
+      "exe": "antigravity",
+      "source": {
+        "type": "agy",
+        "manifest": {
+          "x64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_amd64.json",
+          "arm64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_arm64.json"
+        },
+        "extract": "targz"
+      }
+    },
+    "claude": {
+      "launchers": [
+        "claude.sh"
+      ],
+      "exe": "claude",
+      "source": {
+        "type": "claude",
+        "baseUrl": "https://downloads.claude.ai/claude-code-releases",
+        "channel": "stable",
+        "platform": {
+          "x64": "darwin-x64",
+          "arm64": "darwin-arm64"
+        },
+        "extract": "none"
+      }
+    },
+    "codex": {
+      "launchers": [
+        "codex.sh"
+      ],
+      "exe": "bin/codex",
+      "source": {
+        "type": "github",
+        "repo": "openai/codex",
+        "asset": {
+          "x64": "codex-package-x86_64-apple-darwin.tar.gz",
+          "arm64": "codex-package-aarch64-apple-darwin.tar.gz"
+        },
+        "tagPrefix": "rust-v",
+        "extract": "targz"
+      }
+    },
+    "oc": {
+      "launchers": [
+        "opencode.sh"
+      ],
+      "exe": "opencode",
+      "source": {
+        "type": "github",
+        "repo": "sst/opencode",
+        "asset": {
+          "x64": "opencode-darwin-x64-baseline.zip",
+          "arm64": "opencode-darwin-arm64.zip"
+        },
+        "tagPrefix": "v",
+        "extract": "zip"
+      }
+    }
+  }
+}

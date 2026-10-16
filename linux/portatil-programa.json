@@ -1,0 +1,66 @@
+{
+  "_comment": "Portable installation for Linux: scripts copied by instalar.py and official download sources. See docs/ARCHITECTURE.md.",
+  "system": "linux",
+  "rootFiles": [
+    "instalar.sh",
+    "actualizar.sh",
+    "portatil-programa.json",
+    "README.md",
+    "lib/python.sh",
+    "lib/portatil.py",
+    "lib/lanzador.py",
+    "lib/instalar.py"
+  ],
+  "tools": {
+    "antigravity": {
+      "launchers": ["antigravity.sh"],
+      "exe": "antigravity",
+      "source": {
+        "type": "agy",
+        "manifest": {
+          "x64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json",
+          "arm64": "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_arm64.json"
+        },
+        "extract": "targz"
+      }
+    },
+    "claude": {
+      "launchers": ["claude.sh"],
+      "exe": "claude",
+      "source": {
+        "type": "claude",
+        "baseUrl": "https://downloads.claude.ai/claude-code-releases",
+        "channel": "stable",
+        "platform": { "x64": "linux-x64", "arm64": "linux-arm64" },
+        "platformMusl": { "x64": "linux-x64-musl", "arm64": "linux-arm64-musl" },
+        "extract": "none"
+      }
+    },
+    "codex": {
+      "launchers": ["codex.sh"],
+      "exe": "bin/codex",
+      "source": {
+        "type": "github",
+        "repo": "openai/codex",
+        "asset": {
+          "x64": "codex-package-x86_64-unknown-linux-musl.tar.gz",
+          "arm64": "codex-package-aarch64-unknown-linux-musl.tar.gz"
+        },
+        "tagPrefix": "rust-v",
+        "extract": "targz"
+      }
+    },
+    "oc": {
+      "launchers": ["opencode.sh"],
+      "exe": "opencode",
+      "source": {
+        "type": "github",
+        "repo": "sst/opencode",
+        "asset": { "x64": "opencode-linux-x64-baseline.tar.gz", "arm64": "opencode-linux-arm64.tar.gz" },
+        "assetMusl": { "x64": "opencode-linux-x64-baseline-musl.tar.gz", "arm64": "opencode-linux-arm64-musl.tar.gz" },
+        "tagPrefix": "v",
+        "extract": "targz"
+      }
+    }
+  }
+}

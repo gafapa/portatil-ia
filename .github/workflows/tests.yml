@@ -1,0 +1,61 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Syntax of Python and sh scripts
+        shell: bash
+        run: |
+          python -I -S -B -c "import pathlib; [compile(p.read_text(encoding='utf-8'), str(p), 'exec') for p in pathlib.Path('.').rglob('*.py')]"
+          find linux macos -name '*.sh' -print0 | xargs -0 -n1 sh -n
+
+      - name: Syntax of PowerShell scripts
+        shell: pwsh
+        run: |
+          $bad = @()
+          foreach ($f in Get-ChildItem windows -Recurse -Filter *.ps1) {
+            $e = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$e)
+            if ($e) { $bad += "$($f.FullName): $($e[0].Message)" }
+          }
+          if ($bad) { $bad; exit 1 }
+
+      - name: Linux and macOS scripts are identical
+        shell: bash
+        run: |
+          diff -r --exclude=portatil-programa.json --exclude=README.md linux macos
+
+      - name: Regression tests
+        run: python -B -m unittest discover -s tests -v
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
