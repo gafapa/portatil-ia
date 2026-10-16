@@ -81,17 +81,28 @@ def child_environment(home, inherited=None):
 
 
 def require_portable_path(root, path):
-    """Reject escapes and existing symlinks/junctions before file access."""
+    """Reject escapes and existing symlinks/junctions before file access.
+
+    Only links *inside* the portable are refused. The folders above its root
+    may legitimately resolve elsewhere (macOS /var -> /private/var, Windows
+    8.3 short names such as RUNNER~1), so each component is compared with
+    where it should be relative to the resolved root."""
     root = os.path.abspath(root)
     path = os.path.abspath(path)
     try:
         if os.path.commonpath((root, path)) != root:
             raise ValueError('outside portable root')
+        real_root = os.path.normcase(os.path.realpath(root))
+        is_junction = getattr(os.path, 'isjunction', lambda p: False)
         current = path
         while True:
-            if os.path.islink(current) or (os.path.exists(current) and
-                    os.path.normcase(os.path.realpath(current)) != os.path.normcase(current)):
+            if os.path.islink(current) or is_junction(current):
                 raise ValueError('linked portable path')
+            if os.path.exists(current):
+                relative = os.path.relpath(current, root)
+                expected = real_root if relative == os.curdir else os.path.join(real_root, os.path.normcase(relative))
+                if os.path.normcase(os.path.realpath(current)) != expected:
+                    raise ValueError('linked portable path')
             if current == root:
                 break
             current = os.path.dirname(current)

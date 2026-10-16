@@ -243,7 +243,33 @@ class EnvironmentTests(unittest.TestCase):
                         env=env, capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assert_isolated(json.loads(result.stdout.strip()), portable_root)
-                    self.assertEqual(Path(json.loads(result.stdout.strip())['AUDIT_CWD']), portable_root / tool)
+                    self.assertEqual(Path(json.loads(result.stdout.strip())['AUDIT_CWD']).resolve(), (portable_root / tool).resolve())
+
+    def test_links_above_the_portable_root_are_allowed_but_not_inside(self):
+        # macOS /var -> /private/var, Windows 8.3 names (RUNNER~1) or a mounted
+        # path above the portable must not make a valid portable unusable.
+        def link(target, name):
+            if os.name == 'nt':
+                subprocess.run(['cmd', '/c', 'mklink', '/J', str(name), str(target)],
+                               check=True, capture_output=True)
+            else:
+                os.symlink(target, name)
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / 'real'
+            (real / 'portable' / 'claude' / 'data').mkdir(parents=True)
+            alias = Path(tmp) / 'alias'
+            link(real, alias)
+            root = alias / 'portable'
+            self.assertEqual(portatil.require_portable_path(str(root), str(root / 'claude' / 'data' / 'x.json')),
+                             os.path.abspath(str(root / 'claude' / 'data' / 'x.json')))
+            outside = Path(tmp) / 'outside'
+            outside.mkdir()
+            link(outside, real / 'portable' / 'claude' / 'linked')
+            with self.assertRaises(portatil.CredentialError):
+                portatil.require_portable_path(str(root), str(root / 'claude' / 'linked' / 'x.json'))
+            if os.name == 'nt':
+                for junction in (real / 'portable' / 'claude' / 'linked', alias):
+                    os.rmdir(junction)
 
     def test_python_codex_overrides_precede_user_arguments(self):
         # The file-store overrides are global options; appended after the user's
@@ -326,7 +352,7 @@ class EnvironmentTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 output = next(line for line in result.stdout.splitlines() if line.startswith('{'))
                 self.assert_isolated(json.loads(output), portable_root)
-                self.assertEqual(Path(json.loads(output)['AUDIT_CWD']), portable_root / tool)
+                self.assertEqual(Path(json.loads(output)['AUDIT_CWD']).resolve(), (portable_root / tool).resolve())
 
     @unittest.skipUnless(os.name == 'nt' and shutil.which('pwsh'), 'Requires Windows and PowerShell 7')
     def test_windows_assistant_flags_are_not_taken_by_launchers(self):
