@@ -22,6 +22,8 @@ Codex uses explicit command-line overrides for both `cli_auth_credentials_store`
 
 Windows OpenCode protects both `auth.json` and `mcp-auth.json` in a versioned encrypted bundle and can still restore the older raw-auth encrypted format. It preserves newer plaintext files when restoring an older encrypted bundle. Source for the MCP token file: [OpenCode MCP authentication](https://opencode.ai/docs/mcp-servers/).
 
+Codex also receives explicit `sqlite_home` and `log_dir` overrides, recomputed from the current portable root, and a portable `CODEX_SQLITE_HOME`. Conflicting storage settings in `-c`, `--config`, and attached forms are rejected before credential restoration. Scanning stops at `--` to preserve nested MCP commands. Launchers no longer rewrite TOML with regular expressions, which could corrupt multiline strings. Successful Windows commands that delete a credential file remove its encrypted predecessor; Python Codex protection writes the current bundle even when empty. This preserves logout instead of resurrecting old tokens.
+
 macOS Claude uses only the token configured in the portable; it does not import `CLAUDE_CODE_OAUTH_TOKEN` from the host environment. The stored token is added after environment sanitization. The user must still avoid running `/login` inside Claude, because that command is handled by the upstream assistant and can use the native Keychain.
 
 Python launcher entry points use `-I -S -B`: host Python environment settings and user/site startup customization are excluded, and imports do not create bytecode caches. The launchers explicitly load their own standard-library-only modules.

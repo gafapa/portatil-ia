@@ -198,6 +198,29 @@ class EnvironmentTests(unittest.TestCase):
                 self.assertFalse(auth.exists())
                 self.assertFalse(mcp.exists())
 
+                if tool == 'codex':
+                    env['PORTATIL_PASSWORD'] = 'portable-password'
+                    for arguments in (['-c', 'cli_auth_credentials_store="keyring"'],
+                                      ['--config=sqlite_home="host"'], ['-clog_dir="host"']):
+                        result = subprocess.run(['pwsh', '-NoProfile', '-File', str(launcher)] + arguments,
+                                                env=env, capture_output=True, text=True, timeout=60)
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertFalse(auth.exists())
+                        self.assertEqual((data / 'auth.json.enc').read_bytes(), encrypted)
+                    moved = Path(tmp) / 'another machine USB'
+                    shutil.move(str(root), moved)
+                    data = moved / 'codex' / 'data' / 'codex'
+                    launcher = moved / 'codex' / 'codex.ps1'
+                    probe = moved / 'logout.py'
+                    probe.write_text('import pathlib; p=pathlib.Path(%r); assert (p/"auth.json").exists(); assert (p/".credentials.json").exists(); (p/"auth.json").unlink(); (p/".credentials.json").unlink()' % str(data), encoding='utf-8')
+                    batch = moved / 'logout.cmd'
+                    batch.write_text('@echo off\n"%s" "%s"\n' % (sys.executable, probe), encoding='utf-8')
+                    result = subprocess.run(['pwsh', '-NoProfile', '-File', str(launcher), '/c', str(batch)],
+                                            env=env, capture_output=True, text=True, timeout=60)
+                    self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertFalse((data / 'auth.json.enc').exists())
+                    self.assertFalse((data / '.credentials.json.enc').exists())
+
     def test_python_environment_allowlist_and_profile_paths(self):
         inherited = {name: DUMMY_VALUE for name in HOST_VARIABLES}
         inherited.update(PATH=os.environ.get('PATH', ''), LANG='C', LC_ALL='C', TERM='xterm')
@@ -294,7 +317,59 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             argv = json.loads(next(l for l in result.stdout.splitlines() if l.startswith('ARGV='))[5:])
             self.assertEqual(argv, ['-c', 'cli_auth_credentials_store="file"',
-                                    '-c', 'mcp_oauth_credentials_store="file"'] + user_args)
+                                    '-c', 'mcp_oauth_credentials_store="file"',
+                                    '-c', 'sqlite_home=' + json.dumps(str(portable_root / 'codex' / 'data' / 'codex')),
+                                    '-c', 'log_dir=' + json.dumps(str(portable_root / 'codex' / 'data' / 'codex' / 'logs'))] + user_args)
+
+    def test_codex_rejects_storage_overrides_before_decryption(self):
+        for key in ('cli_auth_credentials_store', 'mcp_oauth_credentials_store', 'sqlite_home', 'log_dir'):
+            for arguments in (['-c', key + '="host"'], ['--config=' + key + '="host"'],
+                              ['-c' + key + '="host"'], ['--config', 'profiles.work.' + key + '="host"']):
+                with self.subTest(arguments=arguments):
+                    launcher = lanzador.Launcher('codex', arguments)
+                    with self.assertRaises(portatil.CredentialError):
+                        launcher.validate_codex_arguments()
+        lanzador.Launcher('codex', ['mcp', 'add', 'test', '--', 'server', '-c', 'log_dir="server"']).validate_codex_arguments()
+
+    def test_codex_login_refresh_relocation_logout(self):
+        with tempfile.TemporaryDirectory(prefix='portable relocation ') as tmp:
+            root = Path(tmp) / 'machine A' / 'USB'
+            data = root / 'codex' / 'data' / 'codex'
+            data.mkdir(parents=True)
+            config = 'description = """\ncli_auth_credentials_store = "keyring"\n"""\nlog_dir="old-machine"\n'
+            (data / 'config.toml').write_text(config, encoding='utf-8')
+            with mock.patch.object(lanzador, 'ROOT', str(root)):
+                launcher = lanzador.Launcher('codex', ['login'])
+                launcher.password = 'dummy-portable-password'
+                (data / 'auth.json').write_bytes(b'dummy-initial-login')
+                (data / '.credentials.json').write_bytes(b'dummy-mcp-login')
+                self.assertTrue(launcher.protect())
+                self.assertFalse((data / 'auth.json').exists())
+            moved = Path(tmp) / 'machine B different drive' / 'USB'
+            moved.parent.mkdir()
+            shutil.move(str(root), moved)
+            data = moved / 'codex' / 'data' / 'codex'
+            with mock.patch.object(lanzador, 'ROOT', str(moved)):
+                launcher = lanzador.Launcher('codex', ['login', 'status'])
+                launcher.password = 'dummy-portable-password'
+                plain = portatil.unprotect(Path(launcher.enc).read_bytes(), launcher.password, launcher.spec['magic'])
+                launcher.restore_bundle(plain)
+                self.assertEqual((data / 'auth.json').read_bytes(), b'dummy-initial-login')
+                env = launcher.environment(str(moved / 'codex' / 'prog'))
+                self.assertEqual(env['CODEX_HOME'], str(data))
+                self.assertEqual(env['CODEX_SQLITE_HOME'], str(data))
+                self.assertIn('sqlite_home=' + json.dumps(str(data)), launcher.codex_options())
+                self.assertEqual((data / 'config.toml').read_text(encoding='utf-8'), config)
+                (data / 'auth.json').write_bytes(b'dummy-refreshed-login')
+                self.assertTrue(launcher.protect())
+                launcher.restore_bundle(portatil.unprotect(Path(launcher.enc).read_bytes(), launcher.password, launcher.spec['magic']))
+                self.assertEqual((data / 'auth.json').read_bytes(), b'dummy-refreshed-login')
+                (data / 'auth.json').unlink()
+                (data / '.credentials.json').unlink()
+                self.assertTrue(launcher.protect())
+                launcher.restore_bundle(portatil.unprotect(Path(launcher.enc).read_bytes(), launcher.password, launcher.spec['magic']))
+                self.assertFalse((data / 'auth.json').exists())
+                self.assertFalse((data / '.credentials.json').exists())
 
     def test_host_variables_cannot_replace_launcher_program_or_keychain(self):
         env = dict(os.environ, PORTATIL_PRUEBA_SISTEMA='fake-system',

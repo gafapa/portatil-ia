@@ -221,7 +221,7 @@ class Launcher:
                 os.makedirs(v, exist_ok=True)
         if self.key == 'codex':
             env['PATH'] = os.path.join(prog, 'codex-path') + os.pathsep + env.get('PATH', '')
-            self.pin_codex_file_store(env['CODEX_HOME'])
+            env['CODEX_SQLITE_HOME'] = env['CODEX_HOME']
         if self.key == 'antigravity' and SYSTEM == 'linux':
             # Without a D-Bus session Antigravity skips the keyring and keeps
             # its login in files under its (portable) home.
@@ -230,32 +230,38 @@ class Launcher:
             env[CLAUDE_TOKEN_ENV] = self.token
         return env
 
-    @staticmethod
-    def pin_codex_file_store(codex_home):
-        """Codex can keep its login in the OS keyring ('auto'/'keyring');
-        pin the file store (auth.json in the portable)."""
-        path = os.path.join(codex_home, 'config.toml')
-        text = ''
-        if os.path.exists(path):
-            with open(path, encoding='utf-8') as f:
-                text = f.read()
-        # Only top-level keys (before the first [table]) apply.
-        table = re.search(r'(?m)^[ \t]*\[', text)
-        head, tail = (text[:table.start()], text[table.start():]) if table else (text, '')
-        new_head = head
-        for name in ('cli_auth_credentials_store', 'mcp_oauth_credentials_store'):
-            setting = re.compile(r'(?m)^[ \t]*%s[ \t]*=.*$' % name)
-            value = '%s = "file"' % name
-            if setting.search(new_head):
-                new_head = setting.sub(value, new_head)
-            else:
-                new_head = value + '\n' + new_head
-        new = new_head.rstrip('\r\n') + '\n' + tail
-        if new != text:
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(new)
-
     # --- credentials ----------------------------------------------------
+
+    def codex_options(self):
+        """Enforce portable storage without rewriting arbitrary user TOML."""
+        home = os.path.join(self.dir, 'data', 'codex')
+        return ['-c', 'cli_auth_credentials_store="file"',
+                '-c', 'mcp_oauth_credentials_store="file"',
+                '-c', 'sqlite_home=' + json.dumps(home),
+                '-c', 'log_dir=' + json.dumps(os.path.join(home, 'logs'))]
+
+    def validate_codex_arguments(self):
+        reserved = {'cli_auth_credentials_store', 'mcp_oauth_credentials_store',
+                    'sqlite_home', 'log_dir', 'codex_home'}
+        index = 0
+        while index < len(self.args):
+            argument = self.args[index]
+            if argument == '--':
+                break
+            value = None
+            if argument in ('-c', '--config'):
+                index += 1
+                if index < len(self.args):
+                    value = self.args[index]
+            elif argument.startswith('--config='):
+                value = argument[len('--config='):]
+            elif argument.startswith('-c') and len(argument) > 2:
+                value = argument[2:]
+            if value is not None:
+                key = value.split('=', 1)[0].replace('"', '').replace("'", '').strip()
+                if any(part.strip() in reserved for part in key.split('.')):
+                    raise portatil.CredentialError('Portable Codex storage settings cannot be overridden: ' + key)
+            index += 1
 
     def secret_files(self):
         """Credential files present now, relative to the assistant folder."""
@@ -331,7 +337,7 @@ class Launcher:
         files = self.secret_files()
         token_new = self.token_mode and self.token and not os.path.exists(self.enc)
         try:
-            if live is None and pending is None and not files and not token_new:
+            if live is None and pending is None and not files and not token_new and not (self.key == 'codex' and os.path.exists(self.enc)):
                 return True
             try:
                 self.ensure_password(for_new=True)
@@ -474,6 +480,8 @@ class Launcher:
 
     def run(self):
         portatil.validate_portable_tree(self.dir)
+        if self.key == 'codex':
+            self.validate_codex_arguments()
         if self.key == 'antigravity' and not (self.args and all(a in INFO_ARGS for a in self.args)):
             raise portatil.CredentialError('Antigravity OAuth usa el llavero del equipo. Este modo esta bloqueado para mantener las credenciales solo en el portable.')
         informational = self.args and all(a in INFO_ARGS for a in self.args) and not self.setup_token
@@ -564,7 +572,7 @@ class Launcher:
             if self.key == 'codex':
                 # Global options: before the subcommand, never after the
                 # user's arguments (they would end up in "mcp add ... -- <command>").
-                cmd += ['-c', 'cli_auth_credentials_store="file"', '-c', 'mcp_oauth_credentials_store="file"']
+                cmd += self.codex_options()
                 if workspace:
                     cmd += ['-C', workspace]
             cmd += self.args

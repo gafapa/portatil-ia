@@ -46,6 +46,7 @@ if ([string]::IsNullOrEmpty($DataDir)) {
   $DataDir = Join-Path $root 'data\codex'
 }
 Assert-PortablePath -Root $root -Path $DataDir
+$DataDir = [IO.Path]::GetFullPath($DataDir)
 $portableSessionLock = Open-PortableSessionLock -Root $root
 try {
 
@@ -85,26 +86,29 @@ foreach ($requiredSupportFile in $requiredSupportFiles) {
 New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
 $env:CODEX_HOME = $DataDir
 
-# Codex can keep its login in the OS credential store instead of auth.json
-# ('auto'/'keyring'), which would leave it on the PC. Pin the file store.
-$configToml = Join-Path $DataDir 'config.toml'
-$tomlText = if (Test-Path -LiteralPath $configToml) { [IO.File]::ReadAllText($configToml) } else { '' }
-# Only top-level keys (before the first [table]) apply; any other value
-# there ('keyring', 'auto') is replaced.
-$tomlSetting = '(?m)^[ \t]*cli_auth_credentials_store[ \t]*=[^\r\n]*'
-if ($tomlText.StartsWith('[')) {
-  $tomlHead = ''; $tomlRest = "`n" + $tomlText
-} else {
-  $tableStart = [regex]::Match($tomlText, '(?m)^[ \t]*\[')
-  if ($tableStart.Success) { $tomlHead = $tomlText.Substring(0, $tableStart.Index); $tomlRest = $tomlText.Substring($tableStart.Index) }
-  else { $tomlHead = $tomlText; $tomlRest = '' }
+# Reject overrides before credentials are decrypted. Options after -- belong
+# to a nested command and must pass through unchanged.
+$reservedSettings = @('cli_auth_credentials_store', 'mcp_oauth_credentials_store', 'sqlite_home', 'log_dir', 'codex_home')
+for ($index = 0; $index -lt $CmdArgs.Count; $index++) {
+  $argument = $CmdArgs[$index]
+  if ($argument -eq '--') { break }
+  $value = $null
+  if ($argument -in @('-c', '--config')) {
+    $index++
+    if ($index -lt $CmdArgs.Count) { $value = $CmdArgs[$index] }
+  } elseif ($argument.StartsWith('--config=')) { $value = $argument.Substring(9) }
+  elseif ($argument.StartsWith('-c') -and $argument.Length -gt 2) { $value = $argument.Substring(2) }
+  if ($null -ne $value) {
+    $key = ($value -split '=', 2)[0].Replace('"', '').Replace("'", '').Trim()
+    foreach ($part in ($key -split '\.')) {
+      if ($part.Trim() -in $reservedSettings) { throw "Portable Codex storage settings cannot be overridden: $key" }
+    }
+  }
 }
-if ($tomlHead -match $tomlSetting) { $tomlHead = [regex]::Replace($tomlHead, $tomlSetting, 'cli_auth_credentials_store = "file"') }
-else { $tomlHead = "cli_auth_credentials_store = `"file`"`n" + $tomlHead }
-if (($tomlHead + $tomlRest) -ne $tomlText) {
-  [IO.File]::WriteAllText($configToml, $tomlHead + $tomlRest, (New-Object Text.UTF8Encoding($false)))
-}
-$env:PATH = (Join-Path $root 'codex-path') + [IO.Path]::PathSeparator + $env:PATH
+# JSON strings are also TOML basic strings, including escaped drive paths.
+$portableCodexOptions = @('-c', 'cli_auth_credentials_store="file"', '-c', 'mcp_oauth_credentials_store="file"',
+  '-c', ('sqlite_home=' + (ConvertTo-Json -InputObject ([IO.Path]::GetFullPath($DataDir)) -Compress)),
+  '-c', ('log_dir=' + (ConvertTo-Json -InputObject (Join-Path ([IO.Path]::GetFullPath($DataDir)) 'logs') -Compress)))
 
 function ConvertTo-EncryptedAuth { param([byte[]]$Plaintext, [SecureString]$SecurePassword); Protect-PortableData $Plaintext $SecurePassword 'PORTCX02' }
 function ConvertFrom-EncryptedAuth { param([byte[]]$Blob, [SecureString]$SecurePassword); Unprotect-PortableData $Blob $SecurePassword 'PORTCX02' }
@@ -115,6 +119,8 @@ $envPassword = Pop-PortableEnvPassword -Names @('CODEX_PORTABLE_PASSWORD')
 if ($null -eq $PortablePassword) { $PortablePassword = $envPassword }
 Set-PortableChildEnvironment -HomeDirectory $DataDir
 $env:CODEX_HOME = $DataDir
+$env:CODEX_SQLITE_HOME = $DataDir
+$env:PATH = (Join-Path $root 'codex-path') + [IO.Path]::PathSeparator + $env:PATH
 
 # Encrypts auth.json and removes the plaintext. On the first save the
 # common password is asked here. The plaintext is only removed once the
@@ -270,16 +276,26 @@ if (-not [string]::IsNullOrWhiteSpace($Workspace)) {
 }
 
 $exitCode = 0
+$commandCompleted = $false
 try {
   if ($null -ne $workspacePath) {
     Push-Location $workspacePath
-    try { & $binaryPath -c "cli_auth_credentials_store='file'" -c "mcp_oauth_credentials_store='file'" -C $workspacePath @CmdArgs } finally { Pop-Location }
+    try { & $binaryPath @portableCodexOptions -C $workspacePath @CmdArgs } finally { Pop-Location }
   } elseif ($CmdArgs.Count -gt 0) {
     Push-Location $root
-    try { & $binaryPath -c "cli_auth_credentials_store='file'" -c "mcp_oauth_credentials_store='file'" @CmdArgs } finally { Pop-Location }
+    try { & $binaryPath @portableCodexOptions @CmdArgs } finally { Pop-Location }
   }
   if ($null -ne $LASTEXITCODE) { $exitCode = $LASTEXITCODE }
+  $commandCompleted = $true
 } finally {
+  # Persist successful logout instead of resurrecting the encrypted predecessor.
+  if ($commandCompleted -and $exitCode -eq 0) {
+    foreach ($pair in $credentialPairs) {
+      if (-not (Test-Path -LiteralPath $pair.Plain) -and (Test-Path -LiteralPath $pair.Encrypted)) {
+        Remove-Item -LiteralPath $pair.Encrypted -Force
+      }
+    }
+  }
   if (@($credentialPairs | Where-Object { Test-Path -LiteralPath $_.Plain }).Count -gt 0) {
     try {
       $sessionPassword = Protect-AuthFile -SecurePassword $sessionPassword

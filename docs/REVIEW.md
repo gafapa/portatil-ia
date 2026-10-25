@@ -214,3 +214,13 @@ Reviewed the hardened launchers and installers against the **real** assistant pr
 Regression tests added: `test_windows_assistant_flags_are_not_taken_by_launchers` (real launchers with a simulated program, with and without `-Workspace`) and `test_python_codex_overrides_precede_user_arguments`. The suite now has **17 tests, all passing** on Windows, Linux, and macOS (GitHub Actions).
 
 Still open: native Linux/macOS runs with the real programs, installer rollback after an interrupted promotion, a complete TOML parser, and an OS-level isolation layer (see ISOLATION.md).
+
+## Codex relocation follow-up — 2026-10-25
+
+The launchers now recompute Codex SQLite and log paths on every launch and reject command-line overrides of managed storage settings before decrypting credentials. Windows restores its portable ripgrep path after environment sanitization. The fragile TOML rewriter has been removed; CLI settings enforce storage without modifying user configuration, including multiline strings. Windows resolves custom data paths before changing working directory.
+
+Codex logout now persists in encrypted state: Windows removes encrypted predecessors for credentials deleted by a successfully completed command, and Python writes the current credential bundle even when empty. Existing encryption and password formats remain compatible.
+
+Validation uses disposable profiles and dummy credentials. The 19-test regression suite covers relocation to another directory, encrypted provider/MCP restoration, refreshed tokens, logout, conflicting CLI options, wrong passwords, environment isolation, and Linux/macOS parity. Windows lifecycle coverage runs the actual PowerShell launcher with a simulated assistant. Parser checks cover the Windows scripts. The installed Codex CLI 0.164.0 separately accepted the forced storage options, reported an unsigned-in disposable profile, and added an MCP command without leaking launcher options into its arguments. No real account credentials were read or decrypted.
+
+This is not evidence of a completed OAuth login on two physical computers, native Linux/macOS execution, a real drive-letter change, or filesystem tracing. Drive ownership/ACLs, upstream token revocation, host-browser cookies, and explicitly configured tools remain subject to the limits in ISOLATION.md. This checkout contains scripts; existing installations must receive the updated launchers to use these fixes.

@@ -50,6 +50,14 @@ Some assistants store their login in the operating system's credential store ins
 
 The launchers and verifier no longer read, rename, back up, or restore host credential-store entries. Existing Antigravity encrypted files are preserved, but OAuth startup fails closed. A future portable API mode requires a separately configured portable key; host keys are never imported. See [the isolation policy](docs/ISOLATION.md) for the exact guarantees and limitations.
 
+## Moving Codex between computers
+
+Sign in through the portable launcher (`windows\codex\codex.cmd login`, `sh linux/codex/codex.sh login`, or `sh macos/codex/codex.sh login`). Close Codex and wait for the launcher to finish protecting credentials before safely ejecting the drive. On another computer of the same OS, run that launcher and enter the same portable password. Move the complete installation, including `portatil.passcheck`, encrypted credentials, configuration, sessions, and workspaces.
+
+Codex's account and MCP logins use files inside the portable, encrypted between sessions. Its SQLite state and logs are pinned to the current portable path at each launch, including after a drive-letter change. Storage overrides in Codex arguments are rejected; normal model options and nested MCP command arguments remain available. Existing `config.toml` content is preserved. Successful Codex logout also updates the encrypted state, so the next machine does not restore an old login.
+
+Use a drive whose filesystem is writable and executable on the target computers. NTFS/ext4 permissions can still restrict access for a different OS user; exFAT avoids per-user ownership restrictions but provides no file ACL protection. Browser authorization cookies belong to the browser, and service-side token expiration or revocation can still require signing in again. Separate OS folders do not automatically synchronize their logins.
+
 ## Testing status
 
 Earlier Windows versions were tested on Windows 11 with real programs (Windows PowerShell 5.1 and PowerShell 7). The current folder-only hardening has been tested with simulated assistants on Windows and requires renewed native integration validation. The Linux and macOS versions have been tested with the real downloads (hashes, unpacking, inventory) and with simulated programs and a simulated Keychain for the launchers; they have not yet been run with the real programs on Linux and macOS computers. See `docs/ARCHITECTURE.md` for how they were tested.
